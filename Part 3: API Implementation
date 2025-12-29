@@ -1,0 +1,157 @@
+Assumptions:-
+  companies: id
+  warehouses: id, company_id, name
+  products:
+    id, name, sku, product_type, supplier_id
+  inventory:
+    product_id, warehouse_id, quantity
+  product_thresholds:
+    product_type, low_stock_threshold
+  sales:
+    product_id, warehouse_id, quantity, created_at
+  suppliers:
+    id, name, contact_email
+
+API Endpoint:-
+GET /api/companies/{:company_id}/alerts/low-stock
+
+Implementation (Node.js + Express):-
+const express = require("express");
+const router = express.Router();
+const db = require("../db");
+
+/**
+ * Helper function to calculate how many days are left
+ * before the stock reaches zero.
+ */
+function calculateDaysUntilStockout(currentStock, avgDailySales) {
+  if (avgDailySales <= 0) return null; // no sales trend
+  return Math.ceil(currentStock / avgDailySales);
+}
+
+/**
+ * GET /api/companies/:company_id/alerts/low-stock
+ * Returns low-stock alerts for a company
+ */
+route.get("/api/companies/:company_id/alerts/low-stock", async (req, res, next) => {
+  const {company_id} = req.params;
+  try {
+      /**
+     * STEP 1: Fetch inventory + product + warehouse + supplier + threshold
+     * This gives one row per product per warehouse
+     */
+  const inventoryData = await db.query(`
+    SELECT
+        p.id AS product_id,
+        p.name AS product_name,
+        p.sku,
+        w.name AS warehouse_name,
+        i.quantity AS current_stock,
+        t.low_stock_threshold AS threshold,
+        s.id AS supplier_id,
+        s.name AS supplier_name,
+        s.contact_email
+      FROM warehouses w
+      JOIN inventory i ON i.warehouse_id = w.id
+      JOIN products p ON p.id = i.product_id
+      JOIN product_thresholds t ON t.product_type = p.product_type
+      JOIN suppliers s ON s.id = p.supplier_id
+      WHERE w.company_id = ?
+      `, [company_id]);
+
+      /**
+     * If company has no inventory, return empty result
+     */
+      if(!inventoryData.length){
+      return res.json({ alerts: [], total_alerts: 0 });
+      }
+
+      const alerts = [];
+     /**
+     * STEP 2: Apply business rules per inventory item
+     */
+      for (const item of inventoryData) {
+      // Skip if stock is above threshold
+      if (item.current_stock >= item.threshold) continue;
+
+      /**
+       * STEP 3: Check recent sales (last 30 days)
+       * We only alert for products with recent activity
+       */
+      const salesResult = await db.query(`
+        SELECT
+          SUM(quantity) AS total_sold,
+          COUNT(DISTINCT DATE(created_at)) AS active_days
+        FROM sales
+        WHERE product_id = ?
+          AND warehouse_id = ?
+          AND created_at >= NOW() - INTERVAL 30 DAY
+      `, [item.product_id, item.warehouse_id]);
+
+      const totalSold = salesResult[0].total_sold || 0;
+      const activeDays = salesResult[0].active_days || 0;
+
+      // Skip products with no recent sales
+      if (totalSold === 0 || activeDays === 0) continue;
+
+      const avgDailySales = totalSold / activeDays;
+      const daysUntilStockout = calculateDaysUntilStockout(
+        item.current_stock,
+        avgDailySales
+      );
+   
+      /**
+       * STEP 5: Push alert in required format
+       */
+      alerts.push({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        sku: item.sku,
+        warehouse_name: item.warehouse_name,
+        current_stock: item.current_stock,
+        threshold: item.threshold,
+        days_until_stockout: daysUntilStockout,
+        supplier: {
+          id: item.supplier_id,
+          name: item.supplier_name,
+          contact_email: item.contact_email
+        }
+      });
+    }
+    /**
+     * Return final response
+     */
+    return res.json({
+      alerts,
+      total_alerts: alerts.length
+    });
+
+    } catch (error) {
+    console.error("Low stock alert error:", error);
+    return res.status(500).json({
+      message: "Internal server error"
+    });
+  }
+});
+
+Expected Response Format:-
+{
+  "alerts": [
+    {
+      "product_id": 123,
+      "product_name": "Widget A",
+      "sku": "WID-001",
+      "warehouse_id": 456,
+      "warehouse_name": "Main Warehouse",
+      "current_stock": 5,
+      "threshold": 20,
+      "days_until_stockout": 12,
+      "supplier": {
+        "id": 789,
+        "name": "Supplier Corp",
+        "contact_email": "orders@supplier.com"
+      }
+    }
+  ],
+  "total_alerts": 1
+}
