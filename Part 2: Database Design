@@ -1,0 +1,61 @@
+1. Design Schema:
+Company (
+  id UUID PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP
+) // One company → many warehouses, products, suppliers
+
+Warehouse (
+  id UUID PRIMARY KEY,
+  company_id UUID REFERENCES Company(id),
+  name VARCHAR(255),
+  location VARCHAR(255),
+  created_at TIMESTAMP
+)
+
+Product (
+  id UUID PRIMARY KEY,
+  company_id UUID REFERENCES Company(id),
+  name VARCHAR(255),
+  sku VARCHAR(100) UNIQUE,
+  price DECIMAL(10,2),
+  is_bundle BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMP
+)
+
+Inventory (
+  id UUID PRIMARY KEY,
+  product_id UUID REFERENCES Product(id),
+  warehouse_id UUID REFERENCES Warehouse(id),
+  quantity INT NOT NULL,
+  updated_at TIMESTAMP,
+  UNIQUE(product_id, warehouse_id)
+)
+
+Supplier (
+  id UUID PRIMARY KEY,
+  company_id UUID REFERENCES Company(id),
+  name VARCHAR(255),
+  contact_info TEXT
+)
+
+SupplierProduct (
+  supplier_id UUID REFERENCES Supplier(id),
+  product_id UUID REFERENCES Product(id),
+  PRIMARY KEY (supplier_id, product_id)
+) // One supplier → many products, One product → many suppliers
+
+2. Identified Gaps (Questions for Product Team)
+  1. Are SKUs global or company-specific?
+  2. Are warehouse-to-warehouse transfers allowed?
+  3. Is bundle price calculated or fixed?
+  4. Do suppliers have product-specific pricing?
+  5. Is multi-currency pricing needed?
+  6. Should inventory changes be reversible?
+
+3. Indexes & Constraints
+    UNIQUE (sku)
+    UNIQUE (product_id, warehouse_id)
+    INDEX (company_id)
+    INDEX (product_id)
+    INDEX (warehouse_id)
