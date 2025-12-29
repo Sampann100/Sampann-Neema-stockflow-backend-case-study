@@ -1,4 +1,4 @@
-1️⃣ Issues Identified (Technical + Business Logic)
+1. Issues Identified (Technical + Business Logic)
 Issue 1: No Input Validation
         The code directly accesses data['name'], data['sku'], etc.
     Impact in Production:-
@@ -38,7 +38,7 @@ Issue 7: Duplicate Inventory Records Possible
         Incorrect stock counts
         Inventory mismatches
 
-corrected version of code:- 
+3. corrected version of code:- 
 app.post("/api/products", async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
