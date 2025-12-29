@@ -1,0 +1,102 @@
+1️⃣ Issues Identified (Technical + Business Logic)
+Issue 1: No Input Validation
+        The code directly accesses data['name'], data['sku'], etc.
+    Impact in Production:-
+        Missing fields cause runtime errors (500)
+        Invalid data enters the database
+
+Issue 2: SKU Uniqueness Not Enforced
+        SKUs must be unique across the platform
+        No check before inserting a new product
+    Impact:-
+        Duplicate SKUs break inventory, reporting, and integrations
+
+Issue 3: Product Incorrectly Tied to One Warehouse
+        Product model contains warehouse_id
+        Business rule: products can exist in multiple warehouses
+    Impact:-
+        Same product must be duplicated for every warehouse
+        Data inconsistency and maintenance issues
+
+Issue 4: Price Precision Issue
+        Price can be decimal
+        Likely stored as float
+    Impact:-
+        Financial calculation errors
+        Rounding issues in billing
+
+Issue 6: No Error Handling
+        No try/catch or rollback mechanism
+    Impact:-
+        Application crashes
+        Hard-to-debug production failures
+
+Issue 7: Duplicate Inventory Records Possible
+        Always creates a new inventory row
+        No check for existing (product_id, warehouse_id) entry
+    Impact
+        Incorrect stock counts
+        Inventory mismatches
+
+corrected version of code:- 
+app.post("/api/products", async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const {
+      name,
+      sku,
+      price,
+      warehouse_id,
+      initial_quantity = 0
+    } = req.body;
+    
+    if (!name || !sku || price === undefined) {
+      return res.status(400).json({ error: "Required fields missing" });
+    }
+
+    const existingProduct = await Product.findOne({ sku });
+    if (existingProduct) {
+      return res.status(409).json({ error: "SKU already exists" });
+    }
+
+    const product = await Product.create(
+      [{ name, sku, price }],
+      { session }
+    );
+
+    if (warehouse_id) {
+      const inventory = await Inventory.findOne({
+        product_id: product[0]._id,
+        warehouse_id
+      }).session(session);
+
+      if (inventory) {
+        inventory.quantity += initial_quantity;
+        await inventory.save({ session });
+      } else {
+        await Inventory.create(
+          [{
+            product_id: product[0]._id,
+            warehouse_id,
+            quantity: initial_quantity
+          }],
+          { session }
+        );
+      }
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.status(201).json({
+      message: "Product created successfully",
+      product_id: product[0]._id
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
